@@ -1,6 +1,10 @@
 交叉验证运行方法：
+
 先运行prepare_data.py选择折数，会自动划分数据并保存在fold_data/目录下
 然后在run_classification_fold.sh中设置参数，选择跑哪几折即可
+
+
 例如划分30折：
+
 运行prepare_data.py的save_fold_data函数, 设置folds_num=30
 在run_classification_fold.sh中设置参数start_fold=0， end_fold=29
