@@ -6,6 +6,9 @@ https://aistudio.baidu.com/aistudio/competition/detail/65
 环境：
 Win10, CUDA11.1, pytorch1.8.1, transformers3.4.0
 
+预训练模型：
+RoBERTa：https://github.com/brightmart/roberta_zh，可以下载里面Pytorch版本的RoBERTa_zh_L12和RoBERTa-zh-Large
+
 ----data/：原始数据
 ----event_classification/：事件多标签分类模型
     |---data/ 本模型数据
