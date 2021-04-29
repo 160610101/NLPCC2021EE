@@ -1,14 +1,13 @@
-export CUDA_VISIBLE_DEVICES=0
-
 python try_transformers.py \
 --task trigger \
 --model_type bert \
 --model_name_or_path G:/预训练模型/RoBERTa/RoBERTa_zh_L12_PyTorch \
+--train \
 --do_eval \
 --do_predict \
 --fold_data_dir ../event_classification/fold_data \
---start_fold 3 \
---end_fold 4 \
+--start_fold 0 \
+--end_fold 29 \
 --evaluate_during_training \
 --data_dir \
 ../event_classification/data \
