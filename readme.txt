@@ -3,6 +3,9 @@ https://aistudio.baidu.com/aistudio/competition/detail/65
 
 当前进度：事件分类基线
 
+环境：
+Win10, CUDA11.1, pytorch1.8.1, transformers3.4.0
+
 ----data/：原始数据
 ----event_classification/：事件多标签分类模型
     |---data/ 本模型数据

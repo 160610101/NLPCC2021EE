@@ -1,0 +1,15 @@
+matplotlib
+numpy
+pandas
+requests
+scikit-learn
+scipy
+seaborn
+seqeval
+six
+tensorboard==2.4.1
+tensorboardX==2.2
+torchaudio==0.8.1
+torchvision==0.9.1
+tqdm==4.60.0
+transformers==3.4.0
