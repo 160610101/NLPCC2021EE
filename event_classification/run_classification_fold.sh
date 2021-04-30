@@ -1,4 +1,4 @@
-python try_transformers.py \
+python run_classification_fold.py \
 --task trigger \
 --model_type bert \
 --model_name_or_path G:/预训练模型/RoBERTa/RoBERTa_zh_L12_PyTorch \
