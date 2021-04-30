@@ -13,11 +13,12 @@ def make_data(source_data_path, target_data_path, schemas):
         for line in f.readlines():
             line = json.loads(line)
             text = line["text"]
+            schema_event_types = [_type.split('-')[1] for _type in schemas]
             event_type = [0] * len(schemas)
             if not mode.startswith('test'):
                 for event in line["event_list"]:
                     event_type[schemas.index(event["event_type"])] = 1
-            output_data.append({"text":text, "event_type":event_type})
+            output_data.append({"text":text, "event_type":event_type, "schemas":schema_event_types})
     with open(target_data_path, 'w', encoding='utf-8') as f:
         for _data in output_data:
             f.write(json.dumps(_data, ensure_ascii=False) + '\n')
@@ -89,5 +90,5 @@ if __name__ == '__main__':
     # make_data(dev_path, write_dev_path, schemas)
     # make_data(test1_path, write_test1_path, schemas)
 
-    fold_data_dir = '../event_classification/fold_data'
-    save_fold_data(write_train_path, write_dev_path, fold_data_dir, folds_num=10)
+    # fold_data_dir = '../event_classification/fold_data'
+    # save_fold_data(write_train_path, write_dev_path, fold_data_dir, folds_num=10)

@@ -19,14 +19,13 @@ import logging
 import os
 import json
 
-
 logger = logging.getLogger(__name__)
 
 
 class InputExample(object):
     """A single training/test example for token classification."""
 
-    def __init__(self, guid, text_a, text_b=None, label=None):
+    def __init__(self, guid, text_a, text_b=None, label=None, schemas=None):
         """Constructs a InputExample.
         Args:
             guid: Unique id for the example.
@@ -38,16 +37,18 @@ class InputExample(object):
         self.text_a = text_a
         self.text_b = text_b
         self.label = label
+        self.schemas = schemas
 
 
 class InputFeatures(object):
     """A single set of features of data."""
 
-    def __init__(self, input_ids, attention_mask, token_type_ids, label):
+    def __init__(self, input_ids, attention_mask, token_type_ids, label, label_mask=None):
         self.input_ids = input_ids
         self.input_mask = attention_mask
         self.segment_ids = token_type_ids
         self.label = label
+        self.label_mask = label_mask
 
 
 def read_examples_from_file(data_dir, mode):
@@ -63,7 +64,7 @@ def read_examples_from_file(data_dir, mode):
                 continue
             line_json = json.loads(line)
             examples.append(InputExample(guid="{}-{}".format(mode, guid_index), text_a=line_json['text'],
-                                             label=line_json['event_type']))
+                                         label=line_json['event_type']))
             guid_index += 1
 
     return examples
@@ -145,6 +146,98 @@ def convert_examples_to_features(examples, tokenizer,
                           attention_mask=attention_mask,
                           token_type_ids=token_type_ids,
                           label=label))
+
+    return features
+
+
+def read_examples_from_file_column(data_dir, mode):
+    file_path = os.path.join(data_dir, "event_cl_{}.json".format(mode))
+    guid_index = 1
+    examples = []
+    with open(file_path, encoding="utf-8") as f:
+        for line in f:
+            if line == '\n' or line == '':
+                continue
+            line_json = json.loads(line)
+            examples.append(InputExample(guid="{}-{}".format(mode, guid_index), text_a=line_json['text'],
+                                         label=line_json['event_type'], schemas=line_json['schemas']))
+            guid_index += 1
+
+    return examples
+
+
+def convert_examples_to_features_column(examples, tokenizer,
+                                        max_length=512,
+                                        label_list=None,
+                                        pad_on_left=False,
+                                        pad_token=0,
+                                        pad_token_segment_id=0,
+                                        mask_padding_with_zero=True):
+    features = []
+    for (ex_index, example) in enumerate(examples):
+        if ex_index % 1000 == 0:
+            logger.info("Writing example %d" % (ex_index))
+
+        types_input_ids, types_label_mask = [], []
+        for schema_type in example.schemas:
+            # schema_type = "[type]{}[SEP]".format(schema_type)         # 测试结果：不收敛
+            # tmp_inputs = tokenizer(schema_type, add_special_tokens=False)
+            # types_input_ids += tmp_inputs["input_ids"]
+            # types_label_mask += [0] * (len(tmp_inputs["input_ids"]) - 1) + [1]
+            tmp_inputs_ids = tokenizer(schema_type, add_special_tokens=False)["input_ids"] + [102]      # 去掉[type]试试
+            types_input_ids += tmp_inputs_ids
+            types_label_mask += [0] * (len(tmp_inputs_ids) - 1) + [1]
+        types_token_type_ids = [1] * len(types_input_ids)
+
+        inputs = tokenizer(
+            example.text_a,
+            add_special_tokens=True,
+            max_length=max_length-len(types_input_ids),
+        )
+        input_ids, token_type_ids = inputs["input_ids"] + types_input_ids, inputs["token_type_ids"] + types_token_type_ids
+        label_mask = [0] * len(inputs["input_ids"]) + types_label_mask
+
+        # The mask has 1 for real tokens and 0 for padding tokens. Only real
+        # tokens are attended to.
+        attention_mask = [1 if mask_padding_with_zero else 0] * len(input_ids)
+
+        # Zero-pad up to the sequence length.
+        padding_length = max_length - len(input_ids)
+        if pad_on_left:
+            input_ids = ([pad_token] * padding_length) + input_ids
+            attention_mask = ([0 if mask_padding_with_zero else 1] * padding_length) + attention_mask
+            token_type_ids = ([pad_token_segment_id] * padding_length) + token_type_ids
+            label_mask = [0] * padding_length + label_mask
+        else:
+            input_ids = input_ids + ([pad_token] * padding_length)
+            attention_mask = attention_mask + ([0 if mask_padding_with_zero else 1] * padding_length)
+            token_type_ids = token_type_ids + ([pad_token_segment_id] * padding_length)
+            label_mask = label_mask + [0] * padding_length
+
+        assert len(input_ids) == max_length, "Error with input length {} vs {}".format(len(input_ids), max_length)
+        assert len(attention_mask) == max_length, "Error with input length {} vs {}".format(len(attention_mask),
+                                                                                            max_length)
+        assert len(token_type_ids) == max_length, "Error with input length {} vs {}".format(len(token_type_ids),
+                                                                                            max_length)
+        assert len(label_mask) == max_length, "Error with input length {} vs {}".format(len(label_mask),
+                                                                                        max_length)
+        label = example.label
+
+        if ex_index < 5:
+            logger.info("*** Example ***")
+            logger.info("guid: %s" % (example.guid))
+            logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
+            logger.info("attention_mask: %s" % " ".join([str(x) for x in attention_mask]))
+            logger.info("token_type_ids: %s" % " ".join([str(x) for x in token_type_ids]))
+            logger.info("label_mask: %s" % " ".join([str(x) for x in label_mask]))
+            logger.info("label: %s (id = %s)" % (str(example.label), str(label)))
+
+        features.append(
+            InputFeatures(input_ids=input_ids,
+                          attention_mask=attention_mask,
+                          token_type_ids=token_type_ids,
+                          label=label,
+                          label_mask=label_mask))
 
     return features
 

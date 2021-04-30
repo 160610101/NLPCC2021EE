@@ -23,7 +23,6 @@ import random
 
 import numpy as np
 import torch
-# from seqeval.metrics import f1_score, precision_score, recall_score
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
@@ -51,11 +50,9 @@ from transformers import (
     XLMRobertaTokenizer,
     get_linear_schedule_with_warmup,
 )
-from event_classification.models import BertForSequenceMultiLabelClassification
+from event_classification.models import BertForSequenceMultiLabelClassification, BertForSequenceMultiLabelClassificationWithColumn
 from utils import get_labels, write_file, get_schema
-from event_classification.utils_classify import convert_examples_to_features, read_examples_from_file
-
-# from utils_ner import convert_examples_to_features, get_labels, read_examples_from_file
+from event_classification.utils_classify import convert_examples_to_features, read_examples_from_file, convert_examples_to_features_column, read_examples_from_file_column
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -65,12 +62,13 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
-    "albert": (AlbertConfig, AlbertForTokenClassification, AlbertTokenizer),
+    # "albert": (AlbertConfig, AlbertForTokenClassification, AlbertTokenizer),
     "bert": (BertConfig, BertForSequenceMultiLabelClassification, BertTokenizer),
-    "roberta": (RobertaConfig, RobertaForTokenClassification, RobertaTokenizer),
-    "distilbert": (DistilBertConfig, DistilBertForTokenClassification, DistilBertTokenizer),
-    "camembert": (CamembertConfig, CamembertForTokenClassification, CamembertTokenizer),
-    "xlmroberta": (XLMRobertaConfig, XLMRobertaForTokenClassification, XLMRobertaTokenizer),
+    "bert_column": (BertConfig, BertForSequenceMultiLabelClassificationWithColumn, BertTokenizer),
+    # "roberta": (RobertaConfig, RobertaForTokenClassification, RobertaTokenizer),
+    # "distilbert": (DistilBertConfig, DistilBertForTokenClassification, DistilBertTokenizer),
+    # "camembert": (CamembertConfig, CamembertForTokenClassification, CamembertTokenizer),
+    # "xlmroberta": (XLMRobertaConfig, XLMRobertaForTokenClassification, XLMRobertaTokenizer),
 }
 
 TOKENIZER_ARGS = ["do_lower_case", "strip_accents", "keep_accents", "use_fast"]
@@ -179,7 +177,7 @@ def train(args, train_dataset, all_weights, model, tokenizer, labels, pad_token_
     )
     set_seed(args)  # Added here for reproductibility
 
-    best_metric = 0
+    best_metric = 10
     patience = 0
     for _ in train_iterator:
         print(_, "epoch")
@@ -194,7 +192,7 @@ def train(args, train_dataset, all_weights, model, tokenizer, labels, pad_token_
 
                 model.train()
                 batch = tuple(t.to(args.device) for t in batch)
-                inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3]}
+                inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3], "label_mask":batch[4]}
                 if args.model_type != "distilbert":
                     inputs["token_type_ids"] = (
                         batch[2] if args.model_type in ["bert", "xlnet"] else None
@@ -243,8 +241,8 @@ def train(args, train_dataset, all_weights, model, tokenizer, labels, pad_token_
                         tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                         logging_loss = tr_loss
 
-                        current_metric = results["f1"]
-                        if current_metric <= best_metric:
+                        current_metric = results["loss"]
+                        if current_metric >= best_metric:
                             patience += 1
                             print("=" * 80)
                             print("Best Metric", best_metric)
@@ -322,7 +320,7 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
         batch = tuple(t.to(args.device) for t in batch)
 
         with torch.no_grad():
-            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3]}
+            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "labels": batch[3], "label_mask": batch[4]}
             if args.model_type != "distilbert":
                 inputs["token_type_ids"] = (
                     batch[2] if args.model_type in ["bert", "xlnet"] else None
@@ -457,17 +455,34 @@ def load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode):
         features = torch.load(cached_features_file)
     else:
         logger.info("Creating features from dataset file at %s", args.data_dir)
-        examples = read_examples_from_file(args.data_dir, mode)
-        features = convert_examples_to_features(
-            examples,
-            tokenizer,
-            label_list=labels,
-            max_length=args.max_seq_length,
-            pad_on_left=bool(args.model_type in ["xlnet"]),
-            # pad on the left for xlnet
-            pad_token=tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0],
-            pad_token_segment_id=4 if args.model_type in ["xlnet"] else 0,
-        )
+
+        if args.model_type == 'bert':
+            examples = read_examples_from_file(args.data_dir, mode)
+            features = convert_examples_to_features(
+                examples,
+                tokenizer,
+                label_list=labels,
+                max_length=args.max_seq_length,
+                pad_on_left=bool(args.model_type in ["xlnet"]),
+                # pad on the left for xlnet
+                pad_token=tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0],
+                pad_token_segment_id=4 if args.model_type in ["xlnet"] else 0,
+            )
+        elif args.model_type == 'bert_column':
+            examples = read_examples_from_file_column(args.data_dir, mode)
+            features = convert_examples_to_features_column(
+                examples,
+                tokenizer,
+                label_list=labels,
+                max_length=args.max_seq_length,
+                pad_on_left=bool(args.model_type in ["xlnet"]),
+                # pad on the left for xlnet
+                pad_token=tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0],
+                pad_token_segment_id=4 if args.model_type in ["xlnet"] else 0,
+            )
+        else:
+            raise ValueError('Wrong model_type in args, should be in {}'.format(", ".join(MODEL_CLASSES.keys())))
+
         if args.local_rank in [-1, 0]:
             logger.info("Saving features into cached file %s", cached_features_file)
             torch.save(features, cached_features_file)
@@ -480,6 +495,7 @@ def load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode):
     all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.long)
     all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
     all_label_ids = torch.tensor([f.label for f in features], dtype=torch.int)
+    all_label_mask = torch.tensor([f.label_mask for f in features], dtype=torch.int)
     # 样本权重
     label_count = torch.tensor([99, 63, 69, 96, 154, 299, 197, 1242, 300, 151, 109, 33, 121, 107, 61, 134, 65, 827, 79, 274, 298, 63, 99, 170, 105, 727, 82, 268, 238, 177, 128, 80, 110, 48, 75, 122, 210, 287, 462, 325, 138, 2004, 100, 145, 87, 356, 145, 82, 47, 93, 605, 197, 254, 74, 67, 63, 51, 191, 26, 64, 225, 128, 104, 83, 32], dtype=torch.float)
     label_weight = label_count.sum()/label_count
@@ -487,7 +503,7 @@ def load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode):
     all_weights = torch.tensor([max([label_weight[sub_label] for sub_label in f.label]) for f in features], dtype=torch.float )
     # all_weights = []
 
-    dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+    dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_label_mask)
     return dataset, all_weights
 
 
@@ -716,6 +732,7 @@ def main():
     tokenizer = tokenizer_class.from_pretrained(
         args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
         cache_dir=args.cache_dir if args.cache_dir else None,
+        additional_special_tokens=['[type]'],
         **tokenizer_args,
     )
     model = model_class.from_pretrained(
@@ -724,6 +741,7 @@ def main():
         config=config,
         cache_dir=args.cache_dir if args.cache_dir else None,
     )
+    model.resize_token_embeddings(len(tokenizer))
 
     if args.freeze:
         # for param in model.bert.bert.parameters():
