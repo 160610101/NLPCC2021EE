@@ -51,7 +51,7 @@ from transformers import (
     get_linear_schedule_with_warmup,
 )
 from event_classification.models import BertForSequenceMultiLabelClassification, BertForSequenceMultiLabelClassificationWithColumn
-from utils import get_labels, write_file, get_schema
+from utils import get_labels, write_file, get_schema, FGM
 from event_classification.utils_classify import convert_examples_to_features, read_examples_from_file, convert_examples_to_features_column, read_examples_from_file_column
 
 try:
@@ -120,6 +120,8 @@ def train(args, train_dataset, all_weights, model, tokenizer, labels, pad_token_
         # Load in optimizer and scheduler states
         optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt")))
         scheduler.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "scheduler.pt")))
+
+    fgm = FGM(model)
 
     if args.fp16:
         try:
@@ -213,6 +215,12 @@ def train(args, train_dataset, all_weights, model, tokenizer, labels, pad_token_
                 else:
                     loss.backward()
 
+                fgm.attack()  # 在embedding上添加对抗扰动
+                outputs = model(**inputs)
+                loss_adv = outputs[0]
+                loss_adv.backward()  # 反向传播，并在正常的grad基础上，累加对抗训练的梯度
+                fgm.restore()  # 恢复embedding参数
+
                 tr_loss += loss.item()
                 if (step + 1) % args.gradient_accumulation_steps == 0:
                     if args.fp16:
@@ -220,8 +228,8 @@ def train(args, train_dataset, all_weights, model, tokenizer, labels, pad_token_
                     else:
                         torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
-                    scheduler.step()  # Update learning rate schedule
                     optimizer.step()
+                    scheduler.step()  # Update learning rate schedule
                     model.zero_grad()
                     global_step += 1
 

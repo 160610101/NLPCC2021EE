@@ -7,14 +7,14 @@ python run_classification_fold.py \
 --do_predict \
 --fold_data_dir ../event_classification/fold_data \
 --start_fold 0 \
---end_fold 29 \
+--end_fold 9 \
 --evaluate_during_training \
 --data_dir \
 ../event_classification/data \
 --do_lower_case \
 --keep_accents \
 --schema ../data/duee_event_schema.json \
---output_dir ../event_classification/saved_dict_rb1_5fold \
+--output_dir ../event_classification/saved_dict_rb1_10fold \
 --overwrite_output_dir \
 --max_seq_length 512 \
 --per_gpu_train_batch_size 8 \

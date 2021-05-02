@@ -52,7 +52,7 @@ class InputFeatures(object):
 
 
 def read_examples_from_file(data_dir, mode):
-    if mode.startswith('test'):
+    if mode.startswith('test') or 'fold' not in mode:
         file_path = os.path.join(data_dir, "event_cl_{}.json".format(mode))
     else:
         file_path = os.path.join(data_dir, "{}.json".format(mode))

@@ -1,8 +1,8 @@
 python run_classification.py \
 --task trigger \
 --model_type bert \
---model_name_or_path G:/预训练模型/RoBERTa/RoBERTa_zh_L12_PyTorch \
---train \
+--model_name_or_path /home/zwli/PLM/RoBERTa_zh_L12_PyTorch\
+--do_train \
 --do_eval \
 --do_predict \
 --evaluate_during_training \

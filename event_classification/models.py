@@ -1,11 +1,11 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-
+import copy
 from transformers import BertModel, BertPreTrainedModel
 # from transformers import add_start_docstrings, add_start_docstrings_to_callable
 
-# from loss import FocalLoss, DSCLoss, DiceLoss, LabelSmoothingCrossEntropy
+from event_classification.loss import FocalLoss, DSCLoss, DiceLoss, LabelSmoothingCrossEntropy
 from torch.nn import CrossEntropyLoss, MSELoss, BCELoss, BCEWithLogitsLoss
 
 
@@ -15,8 +15,12 @@ class BertForSequenceMultiLabelClassification(BertPreTrainedModel):
         self.num_labels = config.num_labels
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.classifier = nn.Linear(config.hidden_size, self.config.num_labels)
+        self.classifier = nn.Linear(config.hidden_size*3, config.num_labels)
+        self.max_pool = nn.MaxPool1d(512)
+        self.avg_pool = nn.AvgPool1d(512)
         self.init_weights()
+        for param in self.bert.parameters():
+            param.requires_grad = True
 
     # @add_start_docstrings_to_callable(BERT_INPUTS_DOCSTRING)
     def forward(
@@ -28,6 +32,7 @@ class BertForSequenceMultiLabelClassification(BertPreTrainedModel):
             head_mask=None,
             inputs_embeds=None,
             labels=None,
+            label_mask=None
     ):
         r"""
         labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`, defaults to :obj:`None`):
@@ -60,6 +65,7 @@ class BertForSequenceMultiLabelClassification(BertPreTrainedModel):
         outputs = model(input_ids, labels=labels)
         loss, logits = outputs[:2]
         """
+        pooling_layer = False
 
         outputs = self.bert(
             input_ids,
@@ -70,10 +76,42 @@ class BertForSequenceMultiLabelClassification(BertPreTrainedModel):
             inputs_embeds=inputs_embeds,
         )
 
-        pooled_output = outputs[1]
+        pooled_output = outputs[1]    # (batch_size, hidden_size)
+        last_hidden_state = outputs[0]  # (batch_size, sequence_length, hidden_size)
 
-        pooled_output = self.dropout(pooled_output)
-        logits = self.classifier(pooled_output)    # (batch_size, num_labels)
+        # output_vectors = [pooled_output]
+        # # pooling_mean
+        # input_mask_expanded = attention_mask.unsqueeze(-1)
+        # input_mask_expanded = input_mask_expanded.expand(last_hidden_state.size()).float()
+        # sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
+        # sum_mask = input_mask_expanded.sum(1)
+        # sum_mask = torch.clamp(sum_mask, min=1e-9)
+        # output_vectors.append(sum_embeddings / sum_mask)
+        # # pooling_max
+        # input_mask_expanded = attention_mask.unsqueeze(-1)
+        # input_mask_expanded = input_mask_expanded.expand(last_hidden_state.size()).bool()
+        # input_mask_expanded = ~ input_mask_expanded
+        # last_hidden_state.masked_fill(mask=input_mask_expanded, value=torch.tensor(-1e9))  # Set padding tokens to large negative value
+        # max_over_time = torch.max(last_hidden_state, 1)[0]
+        # output_vectors.append(max_over_time)
+
+        output_vectors = [pooled_output]
+        if pooling_layer:
+            input_mask_expanded = attention_mask.unsqueeze(-1)
+            input_mask_expanded = input_mask_expanded.expand(last_hidden_state.size()).float()
+            masked_last_hidden_state = last_hidden_state * input_mask_expanded
+            mean_pool_res = self.avg_pool(masked_last_hidden_state.transpose(1, 2)).squeeze()
+            input_mask_expanded = attention_mask.unsqueeze(-1)
+            input_mask_expanded = input_mask_expanded.expand(last_hidden_state.size()).bool()
+            input_mask_expanded = ~ input_mask_expanded
+            last_hidden_state.masked_fill(mask=input_mask_expanded, value=torch.tensor(-1e9))  # Set padding tokens to large negative value
+            max_pool_res = self.max_pool(last_hidden_state.transpose(1, 2)).squeeze()
+            output_vectors.append(mean_pool_res)
+            output_vectors.append(max_pool_res)
+
+        output_vector = torch.cat(output_vectors, 1)  # (batch_size, hidden_size*3)
+        output_vector = self.dropout(output_vector)
+        logits = self.classifier(output_vector)    # (batch_size, num_labels)
 
         outputs = (logits,) + outputs[2:]  # add hidden states and attention if they are here
 
@@ -84,6 +122,7 @@ class BertForSequenceMultiLabelClassification(BertPreTrainedModel):
         label_weight = label_weight.cuda()
 
         if labels is not None:
+            # loss_fct = FocalLoss()
             loss_fct = BCEWithLogitsLoss()
             # loss_fct = BCEWithLogitsLoss(weight=label_weight)
             loss = loss_fct(logits, labels.float())
@@ -97,7 +136,7 @@ class BertForSequenceMultiLabelClassificationWithColumn(BertPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.bert = BertModel(config)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        # self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.linear = nn.Linear(config.hidden_size, 1)
         self.init_weights()
 
