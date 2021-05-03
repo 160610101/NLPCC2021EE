@@ -51,8 +51,8 @@ from transformers import (
     get_linear_schedule_with_warmup,
     get_cosine_schedule_with_warmup,
 )
-from event_classification.models import BertForSequenceMultiLabelClassification
-from utils import get_labels, write_file, get_schema, FGM
+from event_classification.models import BertForSequenceMultiLabelClassification, BertForSequenceMultiLabelClassificationWithPool
+from utils import get_labels, write_file, get_schema, FGM, PGD
 from event_classification.utils_classify import convert_examples_to_features, read_examples_from_file
 
 # from utils_ner import convert_examples_to_features, get_labels, read_examples_from_file
@@ -67,6 +67,7 @@ logger = logging.getLogger(__name__)
 MODEL_CLASSES = {
     "albert": (AlbertConfig, AlbertForTokenClassification, AlbertTokenizer),
     "bert": (BertConfig, BertForSequenceMultiLabelClassification, BertTokenizer),
+    "bert_pool": (BertConfig, BertForSequenceMultiLabelClassificationWithPool, BertTokenizer),
     "roberta": (RobertaConfig, RobertaForTokenClassification, RobertaTokenizer),
     "distilbert": (DistilBertConfig, DistilBertForTokenClassification, DistilBertTokenizer),
     "camembert": (CamembertConfig, CamembertForTokenClassification, CamembertTokenizer),
@@ -124,7 +125,7 @@ def train_and_eval(args, train_dataset, eval_dataset, model, tokenizer, labels, 
         optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt")))
         scheduler.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "scheduler.pt")))
 
-    fgm = FGM(model)
+    adv = FGM(model, param_name='word_embeddings')
 
     if args.fp16:
         try:
@@ -218,11 +219,8 @@ def train_and_eval(args, train_dataset, eval_dataset, model, tokenizer, labels, 
                 else:
                     loss.backward()
 
-                fgm.attack()  # 在embedding上添加对抗扰动
-                outputs = model(**inputs)
-                loss_adv = outputs[0]
-                loss_adv.backward()  # 反向传播，并在正常的grad基础上，累加对抗训练的梯度
-                fgm.restore()  # 恢复embedding参数
+                if args.adv_training:
+                    adv.adversarial_training(args, inputs, optimizer)
 
                 tr_loss += loss.item()
                 if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -660,6 +658,7 @@ def main():
         action="store_true",
         help="Whether to run evaluation during training at each logging step.",
     )
+    parser.add_argument("--adv_training", default=None, choices=['fgm', 'pgd'], help="fgm adversarial training")
     parser.add_argument(
         "--do_lower_case", action="store_true", help="Set this flag if you are using an uncased model."
     )

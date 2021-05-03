@@ -3,9 +3,8 @@ from torch import nn
 from torch.nn import functional as F
 import copy
 from transformers import BertModel, BertPreTrainedModel
-# from transformers import add_start_docstrings, add_start_docstrings_to_callable
 
-# from event_classification.loss import FocalLoss, DSCLoss, DiceLoss, LabelSmoothingCrossEntropy
+from event_classification.loss import CircleLoss
 from torch.nn import CrossEntropyLoss, MSELoss, BCELoss, BCEWithLogitsLoss
 
 
@@ -15,9 +14,7 @@ class BertForSequenceMultiLabelClassification(BertPreTrainedModel):
         self.num_labels = config.num_labels
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.classifier = nn.Linear(config.hidden_size*3, config.num_labels)
-        self.max_pool = nn.MaxPool1d(512)
-        self.avg_pool = nn.AvgPool1d(512)
+        self.classifier = nn.Linear(config.hidden_size, config.num_labels)
         self.init_weights()
         for param in self.bert.parameters():
             param.requires_grad = True
@@ -65,7 +62,66 @@ class BertForSequenceMultiLabelClassification(BertPreTrainedModel):
         outputs = model(input_ids, labels=labels)
         loss, logits = outputs[:2]
         """
-        pooling_layer = False
+
+        outputs = self.bert(
+            input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+        )
+
+        pooled_output = outputs[1]    # (batch_size, hidden_size)
+
+        output_vector = self.dropout(pooled_output)
+        logits = self.classifier(output_vector)    # (batch_size, num_labels)
+
+        outputs = (logits,) + outputs[2:]  # add hidden states and attention if they are here
+
+        label_count = torch.tensor([99, 63, 69, 96, 154, 299, 197, 1242, 300, 151, 109, 33, 121, 107, 61, 134, 65, 827, 79, 274, 298, 63, 99, 170, 105, 727, 82, 268, 238, 177, 128, 80, 110, 48, 75, 122, 210, 287, 462, 325, 138, 2004, 100, 145, 87, 356, 145, 82, 47, 93, 605, 197, 254, 74, 67, 63, 51, 191, 26, 64, 225, 128, 104, 83, 32], dtype=torch.float)
+        label_weight = label_count.sum()/label_count
+        # label_weight += min(label_weight)*3
+        # label_weight /= min(label_weight).clone()
+        label_weight = label_weight.cuda()
+
+        if labels is not None:
+            # loss_fct = FocalLoss()
+            loss_fct = BCEWithLogitsLoss()
+            # loss_fct = CircleLoss()
+            # loss_fct = BCEWithLogitsLoss(weight=label_weight)
+            loss = loss_fct(logits, labels.float())
+            outputs = (loss,) + outputs
+
+        return outputs  # (loss), logits, (hidden_states), (attentions)
+
+
+class BertForSequenceMultiLabelClassificationWithPool(BertPreTrainedModel):
+    def __init__(self, config):
+        super().__init__(config)
+        self.num_labels = config.num_labels
+        self.bert = BertModel(config)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.classifier = nn.Linear(config.hidden_size*3, config.num_labels)
+        self.max_pool = nn.MaxPool1d(512)
+        self.avg_pool = nn.AvgPool1d(512)
+        self.init_weights()
+        for param in self.bert.parameters():
+            param.requires_grad = True
+
+    # @add_start_docstrings_to_callable(BERT_INPUTS_DOCSTRING)
+    def forward(
+            self,
+            input_ids=None,
+            attention_mask=None,
+            token_type_ids=None,
+            position_ids=None,
+            head_mask=None,
+            inputs_embeds=None,
+            labels=None,
+            label_mask=None
+    ):
+        pooling_layer = True
 
         outputs = self.bert(
             input_ids,
@@ -124,6 +180,7 @@ class BertForSequenceMultiLabelClassification(BertPreTrainedModel):
         if labels is not None:
             # loss_fct = FocalLoss()
             loss_fct = BCEWithLogitsLoss()
+            # loss_fct = CircleLoss()
             # loss_fct = BCEWithLogitsLoss(weight=label_weight)
             loss = loss_fct(logits, labels.float())
             outputs = (loss,) + outputs

@@ -1,10 +1,11 @@
 python run_classification_fold.py \
 --task trigger \
---model_type bert \
+--model_type bert_pool \
 --model_name_or_path G:/预训练模型/RoBERTa/RoBERTa_zh_L12_PyTorch \
 --train \
 --do_eval \
 --do_predict \
+--adv_training fgm \
 --fold_data_dir ../event_classification/fold_data \
 --start_fold 0 \
 --end_fold 9 \
