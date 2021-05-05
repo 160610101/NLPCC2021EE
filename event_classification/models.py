@@ -156,12 +156,12 @@ class BertForSequenceMultiLabelClassificationWithPool(BertPreTrainedModel):
             input_mask_expanded = attention_mask.unsqueeze(-1)
             input_mask_expanded = input_mask_expanded.expand(last_hidden_state.size()).float()
             masked_last_hidden_state = last_hidden_state * input_mask_expanded
-            mean_pool_res = self.avg_pool(masked_last_hidden_state.transpose(1, 2)).squeeze()
+            mean_pool_res = self.avg_pool(masked_last_hidden_state.transpose(1, 2)).squeeze(-1)
             input_mask_expanded = attention_mask.unsqueeze(-1)
             input_mask_expanded = input_mask_expanded.expand(last_hidden_state.size()).bool()
             input_mask_expanded = ~ input_mask_expanded
             last_hidden_state.masked_fill(mask=input_mask_expanded, value=torch.tensor(-1e9))  # Set padding tokens to large negative value
-            max_pool_res = self.max_pool(last_hidden_state.transpose(1, 2)).squeeze()
+            max_pool_res = self.max_pool(last_hidden_state.transpose(1, 2)).squeeze(-1)
             output_vectors.append(mean_pool_res)
             output_vectors.append(max_pool_res)
 
