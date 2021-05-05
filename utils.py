@@ -212,7 +212,7 @@ class PGD():
                     param.data = self.project(name, param.data)
 
     def project(self, param_name, param_data):
-        eta = torch.clamp(param_data - self.data[param_name])
+        eta = param_data - self.data[param_name]
         norm = torch.norm(eta)
         if norm > self.epsilon:
             eta = self.epsilon * eta / norm

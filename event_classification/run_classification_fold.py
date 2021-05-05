@@ -125,7 +125,11 @@ def train_and_eval(args, train_dataset, eval_dataset, model, tokenizer, labels, 
         optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt")))
         scheduler.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "scheduler.pt")))
 
-    adv = FGM(model, param_name='word_embeddings')
+    if args.adv_training:
+        if args.adv_training == 'fgm':
+            adv = FGM(model, param_name='word_embeddings')
+        elif args.adv_training == 'pgd':
+            adv = PGD(model, param_name='word_embeddings')
 
     if args.fp16:
         try:
