@@ -180,13 +180,10 @@ def convert_examples_to_features_column(examples, tokenizer,
 
         types_input_ids, types_label_mask = [], []
         for schema_type in example.schemas:
-            # schema_type = "[type]{}[SEP]".format(schema_type)         # 测试结果：不收敛
-            # tmp_inputs = tokenizer(schema_type, add_special_tokens=False)
-            # types_input_ids += tmp_inputs["input_ids"]
-            # types_label_mask += [0] * (len(tmp_inputs["input_ids"]) - 1) + [1]
-            tmp_inputs_ids = tokenizer(schema_type, add_special_tokens=False)["input_ids"] + [102]      # 去掉[type]试试
-            types_input_ids += tmp_inputs_ids
-            types_label_mask += [0] * (len(tmp_inputs_ids) - 1) + [1]
+            schema_type = "[type]{}[SEP]".format(schema_type)
+            tmp_inputs = tokenizer(schema_type, add_special_tokens=False)
+            types_input_ids += tmp_inputs["input_ids"]
+            types_label_mask += [1] + [0] * (len(tmp_inputs["input_ids"]) - 1)
         types_token_type_ids = [1] * len(types_input_ids)
 
         inputs = tokenizer(

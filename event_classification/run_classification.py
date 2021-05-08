@@ -24,7 +24,7 @@ import random
 import numpy as np
 import torch
 from torch.nn import CrossEntropyLoss
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset, WeightedRandomSampler
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 
@@ -51,7 +51,7 @@ from transformers import (
     get_linear_schedule_with_warmup,
 )
 from event_classification.models import BertForSequenceMultiLabelClassification, BertForSequenceMultiLabelClassificationWithColumn
-from utils import get_labels, write_file, get_schema, FGM
+from utils import get_labels, write_file, get_schema
 from event_classification.utils_classify import convert_examples_to_features, read_examples_from_file, convert_examples_to_features_column, read_examples_from_file_column
 
 try:
@@ -88,9 +88,9 @@ def train(args, train_dataset, all_weights, model, tokenizer, labels, pad_token_
         tb_writer = SummaryWriter(log_dir=args.output_dir)
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
-    train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
-    # train_sampler = WeightedRandomSampler(all_weights, num_samples=int(train_dataset.__len__()*2)) \
-    #     if args.local_rank == -1 else DistributedSampler(train_dataset)
+    # train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
+    train_sampler = WeightedRandomSampler(all_weights, num_samples=int(train_dataset.__len__()*2)) \
+        if args.local_rank == -1 else DistributedSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size)
 
     if args.max_steps > 0:
@@ -121,7 +121,6 @@ def train(args, train_dataset, all_weights, model, tokenizer, labels, pad_token_
         optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt")))
         scheduler.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "scheduler.pt")))
 
-    fgm = FGM(model)
 
     if args.fp16:
         try:
@@ -179,7 +178,7 @@ def train(args, train_dataset, all_weights, model, tokenizer, labels, pad_token_
     )
     set_seed(args)  # Added here for reproductibility
 
-    best_metric = 10
+    best_metric = 0
     patience = 0
     for _ in train_iterator:
         print(_, "epoch")
@@ -215,12 +214,6 @@ def train(args, train_dataset, all_weights, model, tokenizer, labels, pad_token_
                 else:
                     loss.backward()
 
-                fgm.attack()  # 在embedding上添加对抗扰动
-                outputs = model(**inputs)
-                loss_adv = outputs[0]
-                loss_adv.backward()  # 反向传播，并在正常的grad基础上，累加对抗训练的梯度
-                fgm.restore()  # 恢复embedding参数
-
                 tr_loss += loss.item()
                 if (step + 1) % args.gradient_accumulation_steps == 0:
                     if args.fp16:
@@ -249,8 +242,8 @@ def train(args, train_dataset, all_weights, model, tokenizer, labels, pad_token_
                         tb_writer.add_scalar("loss", (tr_loss - logging_loss) / args.logging_steps, global_step)
                         logging_loss = tr_loss
 
-                        current_metric = results["loss"]
-                        if current_metric >= best_metric:
+                        current_metric = results["f1"]
+                        if current_metric <= best_metric:
                             patience += 1
                             print("=" * 80)
                             print("Best Metric", best_metric)

@@ -5,7 +5,7 @@ import copy
 from transformers import BertModel, BertPreTrainedModel
 
 from event_classification.loss import CircleLoss
-from torch.nn import CrossEntropyLoss, MSELoss, BCELoss, BCEWithLogitsLoss
+from torch.nn import CrossEntropyLoss, MSELoss, BCELoss, BCEWithLogitsLoss, MultiLabelSoftMarginLoss
 
 
 class BertForSequenceMultiLabelClassification(BertPreTrainedModel):
@@ -90,6 +90,7 @@ class BertForSequenceMultiLabelClassification(BertPreTrainedModel):
             loss_fct = BCEWithLogitsLoss()
             # loss_fct = CircleLoss()
             # loss_fct = BCEWithLogitsLoss(weight=label_weight)
+            # loss_fct = MultiLabelSoftMarginLoss()
             loss = loss_fct(logits, labels.float())
             outputs = (loss,) + outputs
 
@@ -193,7 +194,7 @@ class BertForSequenceMultiLabelClassificationWithColumn(BertPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.bert = BertModel(config)
-        # self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.linear = nn.Linear(config.hidden_size, 1)
         self.init_weights()
 
@@ -250,11 +251,11 @@ class BertForSequenceMultiLabelClassificationWithColumn(BertPreTrainedModel):
             inputs_embeds=inputs_embeds,
         )
 
-        pooled_output = outputs[0]      # (batch_size, sequence_length, hidden_size)
-        _batch_size, hidden_size = pooled_output.shape[0], pooled_output.shape[2]
+        last_hidden_state = outputs[0]      # (batch_size, sequence_length, hidden_size)
+        _batch_size, hidden_size = last_hidden_state.shape[0], last_hidden_state.shape[2]
 
-        pooled_output = self.dropout(pooled_output)
-        types_output = pooled_output.masked_select(label_mask.unsqueeze(-1).bool()).reshape(_batch_size, self.num_labels, hidden_size)  # (batch_size, num_labels, hidden_size)
+        last_hidden_state = self.dropout(last_hidden_state)
+        types_output = last_hidden_state.masked_select(label_mask.unsqueeze(-1).bool()).reshape(_batch_size, self.num_labels, hidden_size)  # (batch_size, num_labels, hidden_size)
         logits = self.linear(types_output).squeeze()    # (batch_size, num_labels)
 
         outputs = (logits,) + outputs[2:]  # add hidden states and attention if they are here
