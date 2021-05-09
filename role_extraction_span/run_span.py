@@ -230,9 +230,7 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
                     if (
                             args.local_rank == -1 and args.evaluate_during_training
                     ):  # Only evaluate when single GPU otherwise metrics may not average well
-                        # need_predict = global_step > 1000   # 刚开始训练就预测，效果也不会好，不如跳过节省时间
-                        need_predict = True   # 刚开始训练就预测，效果也不会好，不如跳过节省时间
-                        results, _, _ = evaluate(args, model, tokenizer, labels, pad_token_label_id, mode="dev", need_predict=need_predict)
+                        results, _, _ = evaluate(args, model, tokenizer, labels, pad_token_label_id, mode="dev")
                         for key, value in results.items():
                             tb_writer.add_scalar("eval_{}".format(key), value, global_step)
                     tb_writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
@@ -288,7 +286,7 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
     return global_step, tr_loss / global_step
 
 
-def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix="", need_predict=False):
+def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""):
     eval_dataset, input_texts = load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode=mode)
 
     args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
@@ -733,7 +731,7 @@ def main():
             model = model_class.from_pretrained(checkpoint)
             model.to(args.device)
             result, predictions, _ = evaluate(args, model, tokenizer, labels, pad_token_label_id, mode="dev",
-                                           prefix=checkpoint, need_predict=True)
+                                           prefix=checkpoint)
             # Save results
             output_eval_results_file = os.path.join(checkpoint, "eval_results.txt")
             with open(output_eval_results_file, "w") as writer:
@@ -748,7 +746,7 @@ def main():
         checkpoint = os.path.join(args.output_dir, 'checkpoint-best')
         model = model_class.from_pretrained(checkpoint)
         model.to(args.device)
-        result, predictions, logits = evaluate(args, model, tokenizer, labels, pad_token_label_id, mode="test1", need_predict=True)
+        result, predictions, logits = evaluate(args, model, tokenizer, labels, pad_token_label_id, mode="test1")
         # Save results
         output_test_results_file = os.path.join(checkpoint, "test1_results.txt")
         with open(output_test_results_file, "w") as writer:
