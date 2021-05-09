@@ -13,25 +13,25 @@ ERNIE1.0: https://github.com/nghuyong/ERNIE-Pytorch   下载ernie-1.0(Chinese)�
 MacBert: https://huggingface.co/hfl/chinese-macbert-base/tree/main<br>  
          https://huggingface.co/hfl/chinese-macbert-large/tree/main<br>  
 
+项目组织如下：
 
-----data/：原始数据<br>  
-----event_classification/：事件多标签分类模型<br>  
-    |---data/ 本模型数据<br>  
-    |---fold_data/ 用于交叉验证的数据，划分好后一直保存<br>  
-    |---models.py 模型<br>  
-    |---prepare_data.py 由原始数据生成用于事件分类的数据（包括训练集、验证集、测试集、交叉验证数据集）<br>  
-    |---run_classification.py      基线模型主程序<br>  
-    |---run_classification_fold.py 使用交叉验证的主程序<br>  
-    |---run_classification_fold.sh 交叉验证启动脚本<br>  
-    |---...<br>  
-----out/：提交文件<br>  
-----role_extraction_ner/：MRC-NER论元抽取模型<br>  
-----role_extraction_span/：MRC-SPAN论元抽取模型<br>  
-    |---data/ 本模型数据<br>  
-    |---fold_data/ 用于交叉验证的数据，划分好后一直保存<br>  
-    |---models.py 模型<br>  
-    |---prepare_data.py 由原始数据生成用于论元抽取的数据（包括训练集、验证集、测试集、交叉验证数据集）<br>  
-    |---run_classification.py      基线模型主程序<br>  
-    |---run_classification_fold.py 使用交叉验证的主程序<br>  
-    |---run_classification_fold.sh 交叉验证启动脚本<br>  
-    |---...<br>  
+    |---data/：原始数据
+    |---event_classification/：事件多标签分类模型
+        |---data/ 本模型数据
+        |---fold_data/ 用于交叉验证的数据，划分好后一直保存
+        |---models.py 模型
+        |---prepare_data.py 由原始数据生成用于事件分类的数据（包括训练集、验证集、测试集、交叉验证数据集）
+        |---run_classification.py      基线模型主程序
+        |---run_classification_fold.py 使用交叉验证的主程序  
+        |---run_classification_fold.sh 交叉验证启动脚本  
+        |---...
+    |---role_extraction_ner/：MRC-NER论元抽取模型
+    |---role_extraction_span/：MRC-SPAN论元抽取模型
+        |---data/ 本模型数据
+        |---fold_data/ 用于交叉验证的数据，划分好后一直保存
+        |---models.py 模型
+        |---prepare_data.py 由原始数据生成用于论元抽取的数据（包括训练集、验证集、测试集、交叉验证数据集）
+        |---run_classification.py      基线模型主程序
+        |---run_classification_fold.py 使用交叉验证的主程序
+        |---run_classification_fold.sh 交叉验证启动脚本
+        |---... 
