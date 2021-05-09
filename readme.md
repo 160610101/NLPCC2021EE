@@ -6,11 +6,11 @@ https://aistudio.baidu.com/aistudio/competition/detail/65<br>
 环境：<br>  
 Win10, CUDA11.1, pytorch1.8.1, transformers3.4.0<br>  
 
-下载以下预训练模型，并在utils.py的PLMConfig中配置路径：<br>  
-RoBERTa：https://github.com/brightmart/roberta_zh     brightmart发布的中文RoBERTa预训练模型，下载里面Pytorch版本的RoBERTa_zh_L12和RoBERTa-zh-Large<br>  
-RoBERTa_wwm: https://github.com/ymcui/Chinese-BERT-wwm     科大讯飞发布的中文全词掩码RoBERTa预训练模型，下载里面Pytorch版本的RoBERTa-wwm-ext和RoBERTa-wwm-ext-large。注意下载后需要把bert_config.json文件重命名为config.json<br>  
-ERNIE1.0: https://github.com/nghuyong/ERNIE-Pytorch   下载ernie-1.0(Chinese)的模型参数<br>  
-MacBert: https://huggingface.co/hfl/chinese-macbert-base/tree/main<br>  
+下载以下预训练模型，并在`utils.py`的`PLMConfig`中配置路径：<br>  
+* RoBERTa：https://github.com/brightmart/roberta_zh     brightmart发布的中文RoBERTa预训练模型，下载里面Pytorch版本的RoBERTa_zh_L12和RoBERTa-zh-Large<br>  
+* RoBERTa_wwm: https://github.com/ymcui/Chinese-BERT-wwm     科大讯飞发布的中文全词掩码RoBERTa预训练模型，下载里面Pytorch版本的RoBERTa-wwm-ext和RoBERTa-wwm-ext-large。注意下载后需要把bert_config.json文件重命名为config.json<br>  
+* ERNIE1.0: https://github.com/nghuyong/ERNIE-Pytorch   下载ernie-1.0(Chinese)的模型参数<br>  
+* MacBert: https://huggingface.co/hfl/chinese-macbert-base/tree/main<br>  
          https://huggingface.co/hfl/chinese-macbert-large/tree/main<br>  
 
 项目组织如下：
