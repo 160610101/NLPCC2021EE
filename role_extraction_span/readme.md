@@ -1,7 +1,7 @@
 本目录：
 论元抽取模型
 
-运行<prepare_date.py>生成模型的输入数据。
+运行```prepare_date.py```生成模型的输入数据。
 首先将事件分类模型对测试集的预测结果做预处理：
 ```python
 <event_cls_result_path_dir = '事件分类模型对测试集的预测结果所在目录'>
