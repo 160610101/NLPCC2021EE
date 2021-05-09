@@ -24,6 +24,7 @@ import random
 
 import numpy as np
 import torch
+from sklearn.model_selection import KFold
 from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
@@ -32,31 +33,15 @@ from tqdm import tqdm, trange
 from transformers import (
     WEIGHTS_NAME,
     AdamW,
-    AlbertConfig,
-    AlbertForTokenClassification,
-    AlbertTokenizer,
     BertConfig,
-    BertForTokenClassification,
     BertTokenizer,
-    CamembertConfig,
-    CamembertForTokenClassification,
-    CamembertTokenizer,
-    DistilBertConfig,
-    DistilBertForTokenClassification,
-    DistilBertTokenizer,
-    RobertaConfig,
-    RobertaForTokenClassification,
-    RobertaTokenizer,
-    XLMRobertaConfig,
-    XLMRobertaForTokenClassification,
-    XLMRobertaTokenizer,
     get_linear_schedule_with_warmup,
 )
 from role_extraction_span.models import BertForQuestionAnswering
-from utils import get_labels, token_level_metric, compute_my_span_whole_word_f1
+from utils import get_labels, token_level_metric, compute_my_span_whole_word_f1, PLMConfig
 from role_extraction_span.utils_span import convert_examples_to_features, read_squad_examples, span_metrics, \
     convert_span_output_to_texts
-from utils import write_file, get_schema
+from utils import write_file
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -66,15 +51,11 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
-    "albert": (AlbertConfig, AlbertForTokenClassification, AlbertTokenizer),
     "bert": (BertConfig, BertForQuestionAnswering, BertTokenizer),
-    "roberta": (RobertaConfig, RobertaForTokenClassification, RobertaTokenizer),
-    "distilbert": (DistilBertConfig, DistilBertForTokenClassification, DistilBertTokenizer),
-    "camembert": (CamembertConfig, CamembertForTokenClassification, CamembertTokenizer),
-    "xlmroberta": (XLMRobertaConfig, XLMRobertaForTokenClassification, XLMRobertaTokenizer),
 }
 
 TOKENIZER_ARGS = ["do_lower_case", "strip_accents", "keep_accents", "use_fast"]
+PLM_models = PLMConfig()
 
 
 def set_seed(args):
@@ -85,7 +66,7 @@ def set_seed(args):
         torch.cuda.manual_seed_all(args.seed)
 
 
-def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
+def train_and_eval(args, train_dataset, eval_dataset, eval_input_texts, model, tokenizer):
     """ Train the model """
     if args.local_rank in [-1, 0]:
         tb_writer = SummaryWriter(log_dir=args.output_dir)
@@ -220,8 +201,8 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
                 else:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
 
-                optimizer.step()
                 scheduler.step()  # Update learning rate schedule
+                optimizer.step()
                 model.zero_grad()
                 global_step += 1
 
@@ -230,7 +211,7 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
                     if (
                             args.local_rank == -1 and args.evaluate_during_training
                     ):  # Only evaluate when single GPU otherwise metrics may not average well
-                        results, _, _ = evaluate(args, model, tokenizer, labels, pad_token_label_id, mode="dev")
+                        results, _, _ = evaluate(args, eval_dataset, eval_input_texts, model)
                         for key, value in results.items():
                             tb_writer.add_scalar("eval_{}".format(key), value, global_step)
                     tb_writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
@@ -286,9 +267,7 @@ def train(args, train_dataset, model, tokenizer, labels, pad_token_label_id):
     return global_step, tr_loss / global_step
 
 
-def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""):
-    eval_dataset, input_texts = load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode=mode)
-
+def evaluate(args, eval_dataset, input_texts, model, prefix=""):
     args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
     # Note that DistributedSampler samples randomly
     eval_sampler = SequentialSampler(eval_dataset) if args.local_rank == -1 else DistributedSampler(eval_dataset)
@@ -353,8 +332,6 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
     pred_results = convert_span_output_to_texts(preds, input_texts)
 
     whole_word_result = compute_my_span_whole_word_f1(label_results, pred_results)
-    print('【全词测试结果】')
-    print(whole_word_result)
 
     results = {
         "loss": eval_loss,
@@ -363,7 +340,10 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
         "two_class_f1": f1_score,
         "token_level_precision": token_level_metric(label_results, pred_results)[0],
         "token_level_recall": token_level_metric(label_results, pred_results)[1],
-        "token_level_f1": token_level_metric(label_results, pred_results)[2]  # 论元实体按字符级别匹配的f1，是比赛设定的评价标准
+        "token_level_f1": token_level_metric(label_results, pred_results)[2],  # 论元实体按字符级别匹配的f1，是比赛设定的评价标准
+        "whole_word_precision": whole_word_result[0],
+        "whole_word_recall": whole_word_result[1],
+        "whole_word_f1": whole_word_result[2]
     }
 
     logger.info("***** Eval results %s *****", prefix)
@@ -376,21 +356,78 @@ def evaluate(args, model, tokenizer, labels, pad_token_label_id, mode, prefix=""
     return results, preds_out, logits.tolist()
 
 
-def load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode):
+def predict(args, test_dataset, test_input_texts, model, prefix=""):
+    args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
+    # Note that DistributedSampler samples randomly
+    test_sampler = SequentialSampler(test_dataset) if args.local_rank == -1 else DistributedSampler(test_dataset)
+    test_dataloader = DataLoader(test_dataset, sampler=test_sampler, batch_size=args.eval_batch_size)
+
+    # multi-gpu evaluate
+    # fix the bug when using mult-gpu during evaluating
+    if args.n_gpu > 1 and not isinstance(model, torch.nn.DataParallel):
+        model = torch.nn.DataParallel(model)
+
+    logger.info("***** Running Prediction %s *****", prefix)
+    logger.info("  Num examples = %d", len(test_dataset))
+    logger.info("  Batch size = %d", args.eval_batch_size)
+    preds = None
+    input_ids = None
+    out_label_ids = None
+    model.eval()
+    for batch in tqdm(test_dataloader, desc="Evaluating"):
+        batch = tuple(t.to(args.device) for t in batch)
+
+        with torch.no_grad():
+            inputs = {"input_ids": batch[0], "attention_mask": batch[1], "token_type_ids": batch[2],
+                      "start_labels": batch[3], "end_labels": batch[4]}
+            if args.model_type != "distilbert":
+                inputs["token_type_ids"] = (
+                    batch[2] if args.model_type in ["bert", "xlnet"] else None
+                )  # XLM and RoBERTa don"t use segment_ids
+            outputs = model(**inputs)
+            _, logits = outputs[:2]
+
+        if preds is None:
+            preds = logits.detach().cpu().numpy()   # (batch_size, sequence_length, 2)
+            input_ids = inputs["input_ids"].detach().cpu().numpy()
+        else:
+            preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
+            input_ids = np.append(input_ids, inputs["input_ids"].detach().cpu().numpy(), axis=0)
+
+    def sigmoid(x):
+        s = 1 / (1 + np.exp(-x))
+        return s
+
+    threshold = 0.5
+    logits = sigmoid(preds)
+    preds = logits > threshold     # (batch_size, sequence_length, 2), bool
+    preds = preds + 0               # (batch_size, sequence_length, 2), 0/1
+
+    pred_results = convert_span_output_to_texts(preds, test_input_texts)
+
+    preds_out = [[] for i in range(len(preds))]      # 写入文件的预测结果
+    for i in range(len(preds)):
+        preds_out[i].append({"pred_answers":pred_results[i], "pred_start_pos_list":preds[i][:, 0].tolist(), "pred_end_pos_list":preds[i][:, 1].tolist()})
+    return preds_out
+
+
+def load_and_cache_fold_examples(args, tokenizer, labels, mode):
+    # mode==test1，fold_x_train，fold_x_dev
+
     if args.local_rank not in [-1, 0] and not evaluate:
         torch.distributed.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
 
     # Load data features from cache or dataset file
     if args.withO:
         cached_features_file = os.path.join(
-            args.data_dir,
+            args.data_dir if mode.startswith('test') else args.fold_data_dir,
             "cached_{}_withO_{}_{}".format(mode, list(filter(None, args.model_name_or_path.split("/"))).pop(),
                                      str(args.max_seq_length)
                                      ),
         )
     else:
         cached_features_file = os.path.join(
-            args.data_dir,
+            args.data_dir if mode.startswith('test') else args.fold_data_dir,
             "cached_{}_{}_{}".format(mode, list(filter(None, args.model_name_or_path.split("/"))).pop(),
                                      str(args.max_seq_length)
                                      ),
@@ -403,7 +440,12 @@ def load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode):
             input_texts = pickle.load(f)
     else:
         logger.info("Creating features from dataset file at %s", args.data_dir)
-        examples = read_squad_examples(args, mode)
+        if not mode.startswith('test'):
+            examples_train = read_squad_examples(args, 'train')
+            examples_dev = read_squad_examples(args, 'dev')
+            examples = examples_train + examples_dev
+        else:
+            examples = read_squad_examples(args, 'test1')
         features, input_texts = convert_examples_to_features(
             examples,
             tokenizer,
@@ -450,6 +492,27 @@ def main():
         help="The input data dir. Should contain the training files for the CoNLL-2003 NER task.",
     )
     parser.add_argument(
+        "--fold_data_dir",
+        default=None,
+        type=str,
+        required=True,
+        help="The fold data dir",
+    )
+    parser.add_argument(
+        "--start_fold",
+        default=None,
+        type=int,
+        required=True,
+        help="Run the program on folds[start_fold:end_fold+1], eg, total 30 folds, we can set start_fold=0, end_fold=29",
+    )
+    parser.add_argument(
+        "--end_fold",
+        default=None,
+        type=int,
+        required=True,
+        help="Run the program on folds[start_fold:end_fold+1], eg, total 30 folds, we can set start_fold=0, end_fold=29",
+    )
+    parser.add_argument(
         "--model_type",
         default=None,
         type=str,
@@ -461,7 +524,7 @@ def main():
         default=None,
         type=str,
         required=True,
-        help="Path to pre-trained model or shortcut name selected in the list",
+        help="Path to pre-trained model or shortcut name selected in the list" + str(list(PLM_models.get_model_names())),
     )
     parser.add_argument(
         "--output_dir",
@@ -470,7 +533,6 @@ def main():
         required=True,
         help="The output directory where the model predictions and checkpoints will be written.",
     )
-
     parser.add_argument(
         "--withO",
         default=False,
@@ -478,13 +540,12 @@ def main():
         required=True,
         help="train the model with O label.",
     )
-
     # Other parameters
     parser.add_argument(
         "--schema",
         default="",
         type=str,
-        help="Path to a file containing all labels. If not specified, CoNLL-2003 labels are used.",
+        help="Path to a file containing all labels.",
     )
     parser.add_argument(
         "--config_name", default="", type=str, help="Pretrained config name or path if not the same as model_name"
@@ -640,8 +701,7 @@ def main():
     set_seed(args)
 
     # Prepare CONLL-2003 task
-    schema_labels, _ = get_schema(args.schema)
-    labels = get_labels(schema_labels, task=args.task, mode="span")  # TODO 这里直接指定mode了，后续要统一一下参数
+    labels = get_labels(args.schema, task=args.task, mode="span")  # TODO 这里直接指定mode了，后续要统一一下参数
     num_labels = len(labels)
     # Use cross entropy ignore index as padding label id so that only real label ids contribute to the loss later
     pad_token_label_id = CrossEntropyLoss().ignore_index
@@ -652,8 +712,11 @@ def main():
 
     args.model_type = args.model_type.lower()
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
+
+    model_path = PLM_models.PLMpath[args.model_name_or_path]
+
     config = config_class.from_pretrained(
-        args.config_name if args.config_name else args.model_name_or_path,
+        args.config_name if args.config_name else model_path,
         num_labels=num_labels,
         id2label={str(i): label for i, label in enumerate(labels)},
         label2id={label: i for i, label in enumerate(labels)},
@@ -662,106 +725,96 @@ def main():
     tokenizer_args = {k: v for k, v in vars(args).items() if v is not None and k in TOKENIZER_ARGS}
     logger.info("Tokenizer arguments: %s", tokenizer_args)
     tokenizer = tokenizer_class.from_pretrained(
-        args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
+        args.tokenizer_name if args.tokenizer_name else model_path,
         cache_dir=args.cache_dir if args.cache_dir else None,
         **tokenizer_args,
     )
-    model = model_class.from_pretrained(
-        args.model_name_or_path,
-        from_tf=bool(".ckpt" in args.model_name_or_path),
-        config=config,
-        cache_dir=args.cache_dir if args.cache_dir else None,
-    )
-
-    if args.freeze:
-        # for param in model.bert.bert.parameters():
-        #     param.requires_grad = False
-        for name, param in model.named_parameters():
-            if 'classifier' not in name:  # classifier layer
-                param.requires_grad = False
-            else:
-                print(name)
 
     if args.local_rank == 0:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
-
-    model.to(args.device)
 
     logger.info("Training/evaluation parameters %s", args)
 
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    # Training
-    if args.do_train:
-        train_dataset, _ = load_and_cache_examples(args, tokenizer, labels, pad_token_label_id, mode="train")
-        global_step, tr_loss = train(args, train_dataset, model, tokenizer, labels, pad_token_label_id)
-        logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
+    all_test_data, all_test_input_texts = load_and_cache_fold_examples(args, tokenizer, labels, mode="test")
 
-    # Saving best-practices: if you use defaults names for the model, you can reload it using from_pretrained()
-    if args.do_train and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
-        # Create output directory if needed
-        if not os.path.exists(args.output_dir) and args.local_rank in [-1, 0]:
-            os.makedirs(args.output_dir)
+    for fold in range(args.start_fold, args.end_fold+1):
+        train_dataset, _ = load_and_cache_fold_examples(args, tokenizer, labels, mode="fold_{}_train".format(fold))
+        eval_dataset, eval_input_texts = load_and_cache_fold_examples(args, tokenizer, labels, mode="fold_{}_dev".format(fold))
 
-        logger.info("Saving model checkpoint to %s", args.output_dir)
-        # Save a trained model, configuration and tokenizer using `save_pretrained()`.
-        # They can then be reloaded using `from_pretrained()`
-        model_to_save = (
-            model.module if hasattr(model, "module") else model
-        )  # Take care of distributed/parallel training
-        model_to_save.save_pretrained(args.output_dir)
-        tokenizer.save_pretrained(args.output_dir)
+        model = model_class.from_pretrained(
+            model_path,
+            from_tf=bool(".ckpt" in args.model_name_or_path),
+            config=config,
+            cache_dir=args.cache_dir if args.cache_dir else None,
+        )
 
-        # Good practice: save your training arguments together with the trained model
-        torch.save(args, os.path.join(args.output_dir, "training_args.bin"))
+        if args.freeze:
+            # for param in model.bert.bert.parameters():
+            #     param.requires_grad = False
+            for name, param in model.named_parameters():
+                if 'classifier' not in name:  # classifier layer
+                    param.requires_grad = False
+                else:
+                    print(name)
+        model.to(args.device)
+        logger.info("Training/evaluation parameters %s", args)
 
-    # Evaluation
-    if args.do_eval and args.local_rank in [-1, 0]:
-        tokenizer = tokenizer_class.from_pretrained(args.output_dir, **tokenizer_args)
-        checkpoints = [os.path.join(args.output_dir, 'checkpoint-best')]
-        if args.eval_all_checkpoints:
-            checkpoints = list(
-                os.path.dirname(c) for c in sorted(glob.glob(args.output_dir + "/**/" + WEIGHTS_NAME, recursive=True))
-            )
-            logging.getLogger("pytorch_transformers.modeling_utils").setLevel(logging.WARN)  # Reduce logging
-        logger.info("Evaluate the following checkpoints: %s", checkpoints)
-        for checkpoint in checkpoints:
-            # tokenizer = tokenizer_class.from_pretrained(checkpoint)
-            model = model_class.from_pretrained(checkpoint)
+        fold_output_dir = os.path.join(args.output_dir, "fold{}_checkpoint-best".format(fold))
+        # Training
+        if args.do_train:
+            global_step, tr_loss = train_and_eval(args, train_dataset, eval_dataset, eval_input_texts, model, tokenizer)
+            logger.info("fold %d, global_step = %s, average loss = %s", fold, global_step, tr_loss)
+
+        # Evaluation
+        if args.do_eval and args.local_rank in [-1, 0]:
+            tokenizer = tokenizer_class.from_pretrained(args.output_dir, **tokenizer_args)
+            model = model_class.from_pretrained(fold_output_dir)
             model.to(args.device)
-            result, predictions, _ = evaluate(args, model, tokenizer, labels, pad_token_label_id, mode="dev",
-                                           prefix=checkpoint)
+            result, predictions, logits = evaluate(args, eval_dataset, eval_input_texts, model, prefix="fold_{}_dev".format(fold))
             # Save results
-            output_eval_results_file = os.path.join(checkpoint, "eval_results.txt")
+            output_eval_results_file = os.path.join(fold_output_dir, "eval_results.txt")
             with open(output_eval_results_file, "w") as writer:
                 for key in sorted(result.keys()):
                     writer.write("{} = {}\n".format(key, str(result[key])))
             # Save predictions
-            output_eval_predictions_file = os.path.join(checkpoint, "eval_predictions.json")
-            write_file(predictions, output_eval_predictions_file)
+            output_eval_predictions_file = os.path.join(fold_output_dir, "eval_predictions.json")
+            results = []
+            for prediction in predictions:
+                results.append({'labels': prediction})
+            write_file(results, output_eval_predictions_file)
+            # Save logits
+            output_eval_logits_file = os.path.join(fold_output_dir, "eval_logits.json")
+            results = []
+            for logit in logits:
+                results.append({'logits': logit})
+            write_file(results, output_eval_logits_file)
 
-    if args.do_predict and args.local_rank in [-1, 0]:
-        tokenizer = tokenizer_class.from_pretrained(args.output_dir, **tokenizer_args)
-        checkpoint = os.path.join(args.output_dir, 'checkpoint-best')
-        model = model_class.from_pretrained(checkpoint)
-        model.to(args.device)
-        result, predictions, logits = evaluate(args, model, tokenizer, labels, pad_token_label_id, mode="test1")
-        # Save results
-        # output_test_results_file = os.path.join(checkpoint, "test1_results.txt")
-        # with open(output_test_results_file, "w") as writer:
-        #     for key in sorted(result.keys()):
-        #         writer.write("{} = {}\n".format(key, str(result[key])))
-        # Save predictions
-        output_test_predictions_file = os.path.join(checkpoint, "test1_predictions.json")
-        write_file(predictions, output_test_predictions_file)
-        # Save logits
-        output_test_logits_file = os.path.join(checkpoint, "test1_logits.json")
-        results = []
-        for logit in logits:
-            results.append({'logits': logit})
-        write_file(results, output_test_logits_file)
-    return
+        # predict
+        if args.do_predict and args.local_rank in [-1, 0]:
+            tokenizer = tokenizer_class.from_pretrained(args.output_dir, **tokenizer_args)
+            model = model_class.from_pretrained(fold_output_dir)
+            model.to(args.device)
+            result, predictions, logits = predict(args, all_test_data, all_test_input_texts, model, prefix="fold_{}_test".format(fold))
+            # Save results
+            output_test_results_file = os.path.join(fold_output_dir, "test1_results.txt")
+            with open(output_test_results_file, "w") as writer:
+                for key in sorted(result.keys()):
+                    writer.write("{} = {}\n".format(key, str(result[key])))
+            # Save predictions
+            output_test_predictions_file = os.path.join(fold_output_dir, "test1_predictions.json")
+            results = []
+            for prediction in predictions:
+                results.append({'labels': prediction})
+            write_file(results, output_test_predictions_file)
+            # Save logits
+            output_test_logits_file = os.path.join(fold_output_dir, "test1_logits.json")
+            results = []
+            for logit in logits:
+                results.append({'logits': logit})
+            write_file(results, output_test_logits_file)
 
 
 if __name__ == "__main__":
