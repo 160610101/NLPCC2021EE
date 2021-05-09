@@ -66,7 +66,7 @@ def set_seed(args):
         torch.cuda.manual_seed_all(args.seed)
 
 
-def train_and_eval(args, train_dataset, eval_dataset, eval_input_texts, model, tokenizer):
+def train_and_eval(args, train_dataset, eval_dataset, eval_input_texts, model, tokenizer, output_dir):
     """ Train the model """
     if args.local_rank in [-1, 0]:
         tb_writer = SummaryWriter(log_dir=args.output_dir)
@@ -238,7 +238,6 @@ def train_and_eval(args, train_dataset, eval_dataset, eval_input_texts, model, t
                         best_metric = current_metric
 
                         # Save model checkpoint
-                        output_dir = os.path.join(args.output_dir, "checkpoint-best")
                         if not os.path.exists(output_dir):
                             os.makedirs(output_dir)
                         model_to_save = (
@@ -765,12 +764,12 @@ def main():
         fold_output_dir = os.path.join(args.output_dir, "fold{}_checkpoint-best".format(fold))
         # Training
         if args.do_train:
-            global_step, tr_loss = train_and_eval(args, train_dataset, eval_dataset, eval_input_texts, model, tokenizer)
+            global_step, tr_loss = train_and_eval(args, train_dataset, eval_dataset, eval_input_texts, model, tokenizer, fold_output_dir)
             logger.info("fold %d, global_step = %s, average loss = %s", fold, global_step, tr_loss)
 
         # Evaluation
         if args.do_eval and args.local_rank in [-1, 0]:
-            tokenizer = tokenizer_class.from_pretrained(args.output_dir, **tokenizer_args)
+            tokenizer = tokenizer_class.from_pretrained(fold_output_dir, **tokenizer_args)
             model = model_class.from_pretrained(fold_output_dir)
             model.to(args.device)
             result, predictions, logits = evaluate(args, eval_dataset, eval_input_texts, model, prefix="fold_{}_dev".format(fold))
@@ -794,7 +793,7 @@ def main():
 
         # predict
         if args.do_predict and args.local_rank in [-1, 0]:
-            tokenizer = tokenizer_class.from_pretrained(args.output_dir, **tokenizer_args)
+            tokenizer = tokenizer_class.from_pretrained(fold_output_dir, **tokenizer_args)
             model = model_class.from_pretrained(fold_output_dir)
             model.to(args.device)
             result, predictions, logits = predict(args, all_test_data, all_test_input_texts, model, prefix="fold_{}_test".format(fold))
