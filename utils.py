@@ -7,6 +7,23 @@ try:
 except ImportError:
     pass
 
+
+class PLMConfig():
+    def __init__(self):
+        self.PLMpath = {
+            "roberta": "G:/预训练模型/RoBERTa/RoBERTa_zh_L12_PyTorch",
+            "roberta_large": "",
+            "roberta_wwm": "G:/预训练模型/RoBERTa_wwm/chinese_roberta_wwm_ext",
+            "roberta_wwm_large": "",
+            "ernie": "G:/预训练模型/ERNIE1.0/ernie1.0",
+            "macbert": "G:/预训练模型/MacBERT/MacBERT_base",
+            "macbert_large": "",
+        }
+
+    def get_model_names(self):
+        return self.PLMpath.keys()
+
+
 def get_schema(schema_path):
     """
     读取schema文件;

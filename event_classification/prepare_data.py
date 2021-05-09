@@ -86,9 +86,9 @@ if __name__ == '__main__':
     write_dev_path = '../event_classification/data/event_cl_dev.json'
     write_test1_path = '../event_classification/data/event_cl_test1.json'
 
-    # make_data(train_path, write_train_path, schemas)
-    # make_data(dev_path, write_dev_path, schemas)
-    # make_data(test1_path, write_test1_path, schemas)
+    make_data(train_path, write_train_path, schemas)
+    make_data(dev_path, write_dev_path, schemas)
+    make_data(test1_path, write_test1_path, schemas)
 
-    # fold_data_dir = '../event_classification/fold_data'
-    # save_fold_data(write_train_path, write_dev_path, fold_data_dir, folds_num=10)
+    fold_data_dir = '../event_classification/fold_data'
+    save_fold_data(write_train_path, write_dev_path, fold_data_dir, folds_num=10)

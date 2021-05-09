@@ -31,29 +31,16 @@ from tqdm import tqdm, trange
 from transformers import (
     WEIGHTS_NAME,
     AdamW,
-    AlbertConfig,
-    AlbertForTokenClassification,
-    AlbertTokenizer,
     BertConfig,
     BertTokenizer,
-    CamembertConfig,
-    CamembertForTokenClassification,
-    CamembertTokenizer,
-    DistilBertConfig,
-    DistilBertForTokenClassification,
-    DistilBertTokenizer,
-    RobertaConfig,
-    RobertaForTokenClassification,
-    RobertaTokenizer,
-    XLMRobertaConfig,
-    XLMRobertaForTokenClassification,
-    XLMRobertaTokenizer,
     get_linear_schedule_with_warmup,
     get_cosine_schedule_with_warmup,
+    get_cosine_with_hard_restarts_schedule_with_warmup,
 )
 from event_classification.models import BertForSequenceMultiLabelClassification, BertForSequenceMultiLabelClassificationWithPool
-from utils import get_labels, write_file, get_schema, FGM, PGD
-from event_classification.utils_classify import convert_examples_to_features, read_examples_from_file
+from utils import get_labels, write_file, get_schema, FGM, PGD, PLMConfig
+from event_classification.utils_classify import convert_examples_to_features, read_examples_from_file, \
+    read_examples_from_file_column, convert_examples_to_features_column
 
 # from utils_ner import convert_examples_to_features, get_labels, read_examples_from_file
 
@@ -65,17 +52,13 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
-    "albert": (AlbertConfig, AlbertForTokenClassification, AlbertTokenizer),
     "bert": (BertConfig, BertForSequenceMultiLabelClassification, BertTokenizer),
     "bert_pool": (BertConfig, BertForSequenceMultiLabelClassificationWithPool, BertTokenizer),
-    "roberta": (RobertaConfig, RobertaForTokenClassification, RobertaTokenizer),
-    "distilbert": (DistilBertConfig, DistilBertForTokenClassification, DistilBertTokenizer),
-    "camembert": (CamembertConfig, CamembertForTokenClassification, CamembertTokenizer),
-    "xlmroberta": (XLMRobertaConfig, XLMRobertaForTokenClassification, XLMRobertaTokenizer),
+    "bert_column": (BertConfig, BertForSequenceMultiLabelClassificationWithPool, BertTokenizer),
 }
 
 TOKENIZER_ARGS = ["do_lower_case", "strip_accents", "keep_accents", "use_fast"]
-
+PLM_models = PLMConfig()
 
 def set_seed(args):
     random.seed(args.seed)
@@ -110,9 +93,7 @@ def train_and_eval(args, train_dataset, eval_dataset, model, tokenizer, labels, 
         {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
     ]
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-    # scheduler = get_linear_schedule_with_warmup(
-    #     optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=t_total
-    # )
+
     scheduler = get_cosine_schedule_with_warmup(
         optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=t_total
     )
@@ -525,20 +506,36 @@ def load_and_cache_fold_examples(args, tokenizer, labels, mode):
         features = torch.load(cached_features_file)
     else:
         logger.info("Creating features from dataset file at %s", args.data_dir)
-        if not mode == 'fold_train':
-            examples = read_examples_from_file(args.fold_data_dir, mode)
+        if args.model_type == 'bert_column':
+            if not mode.startswith('test'):
+                examples = read_examples_from_file_column(args.fold_data_dir, mode)
+            else:
+                examples = read_examples_from_file_column(args.data_dir, 'test1')
+            features = convert_examples_to_features_column(
+                examples,
+                tokenizer,
+                label_list=labels,
+                max_length=args.max_seq_length,
+                pad_on_left=bool(args.model_type in ["xlnet"]),
+                # pad on the left for xlnet
+                pad_token=tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0],
+                pad_token_segment_id=4 if args.model_type in ["xlnet"] else 0,
+            )
         else:
-            examples = read_examples_from_file(args.data_dir, 'test1')
-        features = convert_examples_to_features(
-            examples,
-            tokenizer,
-            label_list=labels,
-            max_length=args.max_seq_length,
-            pad_on_left=bool(args.model_type in ["xlnet"]),
-            # pad on the left for xlnet
-            pad_token=tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0],
-            pad_token_segment_id=4 if args.model_type in ["xlnet"] else 0,
-        )
+            if not mode.startswith('test'):
+                examples = read_examples_from_file(args.fold_data_dir, mode)
+            else:
+                examples = read_examples_from_file(args.data_dir, 'test1')
+            features = convert_examples_to_features(
+                examples,
+                tokenizer,
+                label_list=labels,
+                max_length=args.max_seq_length,
+                pad_on_left=bool(args.model_type in ["xlnet"]),
+                # pad on the left for xlnet
+                pad_token=tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0],
+                pad_token_segment_id=4 if args.model_type in ["xlnet"] else 0,
+            )
         if args.local_rank in [-1, 0]:
             logger.info("Saving features into cached file %s", cached_features_file)
             torch.save(features, cached_features_file)
@@ -615,7 +612,7 @@ def main():
         default=None,
         type=str,
         required=True,
-        help="Path to pre-trained model or shortcut name selected in the list: ",
+        help="Path to pre-trained model or shortcut name selected in the list: " + str(list(PLM_models.get_model_names())),
     )
     parser.add_argument(
         "--output_dir",
@@ -799,8 +796,11 @@ def main():
 
     args.model_type = args.model_type.lower()
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
+
+    model_path = PLM_models.PLMpath[args.model_name_or_path]
+
     config = config_class.from_pretrained(
-        args.config_name if args.config_name else args.model_name_or_path,
+        args.config_name if args.config_name else model_path,
         num_labels=num_labels,
         id2label={str(i): label for i, label in enumerate(labels)},
         label2id={label: i for i, label in enumerate(labels)},
@@ -809,8 +809,9 @@ def main():
     tokenizer_args = {k: v for k, v in vars(args).items() if v is not None and k in TOKENIZER_ARGS}
     logger.info("Tokenizer arguments: %s", tokenizer_args)
     tokenizer = tokenizer_class.from_pretrained(
-        args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
+        args.tokenizer_name if args.tokenizer_name else model_path,
         cache_dir=args.cache_dir if args.cache_dir else None,
+        additional_special_tokens=['[type]'],
         **tokenizer_args,
     )
 
@@ -827,11 +828,12 @@ def main():
         eval_dataset, _ = load_and_cache_fold_examples(args, tokenizer, labels, mode="fold_{}_dev".format(fold))
 
         model = model_class.from_pretrained(
-            args.model_name_or_path,
+            model_path,
             from_tf=bool(".ckpt" in args.model_name_or_path),
             config=config,
             cache_dir=args.cache_dir if args.cache_dir else None,
         )
+        model.resize_token_embeddings(len(tokenizer))
 
         if args.freeze:
             # for param in model.bert.bert.parameters():

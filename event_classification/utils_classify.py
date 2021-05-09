@@ -151,7 +151,10 @@ def convert_examples_to_features(examples, tokenizer,
 
 
 def read_examples_from_file_column(data_dir, mode):
-    file_path = os.path.join(data_dir, "event_cl_{}.json".format(mode))
+    if mode.startswith('test') or 'fold' not in mode:
+        file_path = os.path.join(data_dir, "event_cl_{}.json".format(mode))
+    else:
+        file_path = os.path.join(data_dir, "{}.json".format(mode))
     guid_index = 1
     examples = []
     with open(file_path, encoding="utf-8") as f:

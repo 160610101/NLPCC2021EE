@@ -1,7 +1,7 @@
 python run_classification.py \
 --task trigger \
---model_type bert \
---model_name_or_path /home/zwli/PLM/RoBERTa_zh_L12_PyTorch\
+--model_type bert_column \
+--model_name_or_path roberta_wwm \
 --do_train \
 --do_eval \
 --do_predict \
@@ -10,7 +10,7 @@ python run_classification.py \
 --do_lower_case \
 --keep_accents \
 --schema ../data/duee_event_schema.json \
---output_dir ../event_classification/saved_dict_rb1 \
+--output_dir ../event_classification/saved_dict_rbwwm1 \
 --overwrite_output_dir \
 --max_seq_length 512 \
 --per_gpu_train_batch_size 8 \

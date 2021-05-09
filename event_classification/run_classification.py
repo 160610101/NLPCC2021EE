@@ -31,27 +31,14 @@ from tqdm import tqdm, trange
 from transformers import (
     WEIGHTS_NAME,
     AdamW,
-    AlbertConfig,
-    AlbertForTokenClassification,
-    AlbertTokenizer,
     BertConfig,
     BertTokenizer,
-    CamembertConfig,
-    CamembertForTokenClassification,
-    CamembertTokenizer,
-    DistilBertConfig,
-    DistilBertForTokenClassification,
-    DistilBertTokenizer,
-    RobertaConfig,
-    RobertaForTokenClassification,
-    RobertaTokenizer,
-    XLMRobertaConfig,
-    XLMRobertaForTokenClassification,
-    XLMRobertaTokenizer,
     get_linear_schedule_with_warmup,
+    get_cosine_schedule_with_warmup,
+    get_cosine_with_hard_restarts_schedule_with_warmup,
 )
 from event_classification.models import BertForSequenceMultiLabelClassification, BertForSequenceMultiLabelClassificationWithColumn
-from utils import get_labels, write_file, get_schema
+from utils import get_labels, write_file, get_schema, PLMConfig
 from event_classification.utils_classify import convert_examples_to_features, read_examples_from_file, convert_examples_to_features_column, read_examples_from_file_column
 
 try:
@@ -62,13 +49,8 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
-    # "albert": (AlbertConfig, AlbertForTokenClassification, AlbertTokenizer),
     "bert": (BertConfig, BertForSequenceMultiLabelClassification, BertTokenizer),
     "bert_column": (BertConfig, BertForSequenceMultiLabelClassificationWithColumn, BertTokenizer),
-    # "roberta": (RobertaConfig, RobertaForTokenClassification, RobertaTokenizer),
-    # "distilbert": (DistilBertConfig, DistilBertForTokenClassification, DistilBertTokenizer),
-    # "camembert": (CamembertConfig, CamembertForTokenClassification, CamembertTokenizer),
-    # "xlmroberta": (XLMRobertaConfig, XLMRobertaForTokenClassification, XLMRobertaTokenizer),
 }
 
 TOKENIZER_ARGS = ["do_lower_case", "strip_accents", "keep_accents", "use_fast"]
@@ -721,8 +703,11 @@ def main():
 
     args.model_type = args.model_type.lower()
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
+
+    model_path = PLMConfig().PLMpath[args.model_name_or_path]
+
     config = config_class.from_pretrained(
-        args.config_name if args.config_name else args.model_name_or_path,
+        args.config_name if args.config_name else model_path,
         num_labels=num_labels,
         id2label={str(i): label for i, label in enumerate(labels)},
         label2id={label: i for i, label in enumerate(labels)},
@@ -731,17 +716,18 @@ def main():
     tokenizer_args = {k: v for k, v in vars(args).items() if v is not None and k in TOKENIZER_ARGS}
     logger.info("Tokenizer arguments: %s", tokenizer_args)
     tokenizer = tokenizer_class.from_pretrained(
-        args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
+        args.tokenizer_name if args.tokenizer_name else model_path,
         cache_dir=args.cache_dir if args.cache_dir else None,
         additional_special_tokens=['[type]'],
         **tokenizer_args,
     )
     model = model_class.from_pretrained(
-        args.model_name_or_path,
+        model_path,
         from_tf=bool(".ckpt" in args.model_name_or_path),
         config=config,
         cache_dir=args.cache_dir if args.cache_dir else None,
     )
+
     model.resize_token_embeddings(len(tokenizer))
 
     if args.freeze:

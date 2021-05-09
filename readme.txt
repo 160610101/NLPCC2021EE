@@ -6,8 +6,13 @@ https://aistudio.baidu.com/aistudio/competition/detail/65
 环境：
 Win10, CUDA11.1, pytorch1.8.1, transformers3.4.0
 
-预训练模型：
-RoBERTa：https://github.com/brightmart/roberta_zh     可以下载里面Pytorch版本的RoBERTa_zh_L12和RoBERTa-zh-Large
+下载以下预训练模型，并在utils.py的PLMConfig中配置路径：
+RoBERTa：https://github.com/brightmart/roberta_zh     brightmart发布的中文RoBERTa预训练模型，下载里面Pytorch版本的RoBERTa_zh_L12和RoBERTa-zh-Large
+RoBERTa_wwm: https://github.com/ymcui/Chinese-BERT-wwm     科大讯飞发布的中文全词掩码RoBERTa预训练模型，下载里面Pytorch版本的RoBERTa-wwm-ext和RoBERTa-wwm-ext-large。注意下载后需要把bert_config.json文件重命名为config.json
+ERNIE1.0: https://github.com/nghuyong/ERNIE-Pytorch   下载ernie-1.0(Chinese)的模型参数
+MacBert: https://huggingface.co/hfl/chinese-macbert-base/tree/main
+         https://huggingface.co/hfl/chinese-macbert-large/tree/main
+
 
 ----data/：原始数据
 ----event_classification/：事件多标签分类模型
