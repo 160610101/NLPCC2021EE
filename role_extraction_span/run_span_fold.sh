@@ -11,6 +11,7 @@ python run_span_fold.py \
 --end_fold 9 \
 --evaluate_during_training \
 --data_dir ../role_extraction_span/data \
+--adv_training fgm \
 --do_lower_case \
 --keep_accents \
 --schema ../data/duee_event_schema.json \

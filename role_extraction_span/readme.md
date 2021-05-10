@@ -27,6 +27,7 @@ save_fold_data(write_spanWithO_train_path, write_spanWithO_dev_path, fold_data_d
 运行脚本```run_span_fold.sh```，参数设置：
 
     --withO True \                                          # 必选，代表使用带O标签的数据训练
+    --adv_training fgm \                                    # 启用对抗训练，可选择fgm或pgd
     --model_name_or_path roberta \                          # 配置完所有预训练模型后，可以任意选用
     --fold_data_dir ../role_extraction_span/fold_data \     # 配置交叉验证目录，下同
     --start_fold 0 \

@@ -38,7 +38,7 @@ from transformers import (
     get_linear_schedule_with_warmup,
 )
 from role_extraction_span.models import BertForQuestionAnswering
-from utils import get_labels, token_level_metric, compute_my_span_whole_word_f1, PLMConfig
+from utils import get_labels, token_level_metric, compute_my_span_whole_word_f1, PLMConfig, FGM, PGD
 from role_extraction_span.utils_span import convert_examples_to_features, read_squad_examples, span_metrics, \
     convert_span_output_to_texts
 from utils import write_file
@@ -102,6 +102,12 @@ def train_and_eval(args, train_dataset, eval_dataset, eval_input_texts, model, t
         # Load in optimizer and scheduler states
         optimizer.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "optimizer.pt")))
         scheduler.load_state_dict(torch.load(os.path.join(args.model_name_or_path, "scheduler.pt")))
+
+    if args.adv_training:
+        if args.adv_training == 'fgm':
+            adv = FGM(model, param_name='word_embeddings')
+        elif args.adv_training == 'pgd':
+            adv = PGD(model, param_name='word_embeddings')
 
     if args.fp16:
         try:
@@ -193,6 +199,9 @@ def train_and_eval(args, train_dataset, eval_dataset, eval_input_texts, model, t
                     scaled_loss.backward()
             else:
                 loss.backward()
+
+            if args.adv_training:
+                adv.adversarial_training(args, inputs, optimizer)
 
             tr_loss += loss.item()
             if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -576,6 +585,7 @@ def main():
         action="store_true",
         help="Whether to run evaluation during training at each logging step.",
     )
+    parser.add_argument("--adv_training", default=None, choices=['fgm', 'pgd'], help="fgm adversarial training")
     parser.add_argument(
         "--do_lower_case", action="store_true", help="Set this flag if you are using an uncased model."
     )
