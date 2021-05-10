@@ -407,7 +407,7 @@ def predict(args, test_dataset, test_input_texts, model, prefix=""):
     preds_out = [[] for i in range(len(preds))]      # 写入文件的预测结果
     for i in range(len(preds)):
         preds_out[i].append({"pred_answers":pred_results[i], "pred_start_pos_list":preds[i][:, 0].tolist(), "pred_end_pos_list":preds[i][:, 1].tolist()})
-    return [], preds_out, logits
+    return [], preds_out, logits.tolist()
 
 
 def load_and_cache_fold_examples(args, tokenizer, labels, mode):
