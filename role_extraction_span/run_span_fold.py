@@ -407,7 +407,7 @@ def predict(args, test_dataset, test_input_texts, model, prefix=""):
     preds_out = [[] for i in range(len(preds))]      # 写入文件的预测结果
     for i in range(len(preds)):
         preds_out[i].append({"pred_answers":pred_results[i], "pred_start_pos_list":preds[i][:, 0].tolist(), "pred_end_pos_list":preds[i][:, 1].tolist()})
-    return preds_out
+    return [], preds_out, logits
 
 
 def load_and_cache_fold_examples(args, tokenizer, labels, mode):
@@ -798,10 +798,10 @@ def main():
             model.to(args.device)
             result, predictions, logits = predict(args, all_test_data, all_test_input_texts, model, prefix="fold_{}_test".format(fold))
             # Save results
-            output_test_results_file = os.path.join(fold_output_dir, "test1_results.txt")
-            with open(output_test_results_file, "w") as writer:
-                for key in sorted(result.keys()):
-                    writer.write("{} = {}\n".format(key, str(result[key])))
+            # output_test_results_file = os.path.join(fold_output_dir, "test1_results.txt")
+            # with open(output_test_results_file, "w") as writer:
+            #     for key in sorted(result.keys()):
+            #         writer.write("{} = {}\n".format(key, str(result[key])))
             # Save predictions
             output_test_predictions_file = os.path.join(fold_output_dir, "test1_predictions.json")
             results = []
