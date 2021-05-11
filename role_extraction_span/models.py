@@ -55,6 +55,7 @@ class BertForQuestionAnswering(BertPreTrainedModel):
         sequence_output = outputs[0]    # (batch_size, sequence_length, hidden_size)
         sequence_output = self.dropout(sequence_output)
         start_end_pos_logits = self.start_end_pos_classifier(sequence_output)    # (batch_size, sequence_length, 2)
+        start_end_pos_logits = start_end_pos_logits * attention_mask.unsqueeze(-1).expand(-1, -1, 2)
         outputs = (start_end_pos_logits,) + outputs[2:]  # add hidden states and attention if they are here
 
         start_positions = start_labels.unsqueeze(2)

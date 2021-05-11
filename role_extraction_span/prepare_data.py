@@ -114,6 +114,8 @@ def make_fused_test_data(event_cls_result_path_dir, test1_path, new_test1_path):
             all_test_data.append(line)     # [{"text":..., "id":...}, ...]
 
     all_test_prediction_files = glob.glob(event_cls_result_path_dir + "/**/" + '*_predictions.json', recursive=True)
+    if not all_test_prediction_files:
+        raise ValueError('')
     model_num = len(all_test_prediction_files)
     all_pred_results = [[] for i in range(15000)]
     for _path in all_test_prediction_files:
