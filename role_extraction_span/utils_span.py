@@ -55,11 +55,16 @@ class InputFeatures(object):
 
 
 def read_squad_examples(args, mode):
-    assert mode in ['train', 'dev', 'test1']
-    data_dir = args.data_dir
+    # assert mode in ['test1', 'fold_*_train', 'fold_*_dev']
     if args.withO:
-        file_path = os.path.join(data_dir, "role_spanWithO_{}.json".format(mode))
+        if mode.startswith('test'):
+            data_dir = args.data_dir
+            file_path = os.path.join(data_dir, "role_spanWithO_{}.json".format(mode))
+        else:
+            data_dir = args.fold_data_dir
+            file_path = os.path.join(data_dir, "{}.json".format(mode))
     else:
+        data_dir = args.data_dir
         file_path = os.path.join(data_dir, "role_span_{}.json".format(mode))
     guid_index = 1
     examples = []

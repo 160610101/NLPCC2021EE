@@ -448,12 +448,7 @@ def load_and_cache_fold_examples(args, tokenizer, labels, mode):
             input_texts = pickle.load(f)
     else:
         logger.info("Creating features from dataset file at %s", args.data_dir)
-        if not mode.startswith('test'):
-            examples_train = read_squad_examples(args, 'train')
-            examples_dev = read_squad_examples(args, 'dev')
-            examples = examples_train + examples_dev
-        else:
-            examples = read_squad_examples(args, 'test1')
+        examples = read_squad_examples(args, mode)
         features, input_texts = convert_examples_to_features(
             examples,
             tokenizer,
@@ -747,7 +742,7 @@ def main():
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    all_test_data, all_test_input_texts = load_and_cache_fold_examples(args, tokenizer, labels, mode="test")
+    all_test_data, all_test_input_texts = load_and_cache_fold_examples(args, tokenizer, labels, mode="test1")
 
     for fold in range(args.start_fold, args.end_fold+1):
         train_dataset, _ = load_and_cache_fold_examples(args, tokenizer, labels, mode="fold_{}_train".format(fold))
