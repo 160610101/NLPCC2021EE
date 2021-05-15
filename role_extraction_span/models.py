@@ -93,3 +93,80 @@ class BertForQuestionAnswering(BertPreTrainedModel):
         # output = (start_logits, end_logits) + outputs[2:]
         # return ((total_loss,) + output) if total_loss is not None else output
 
+
+
+class BertForQuestionAnsweringMultiTask(BertPreTrainedModel):
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.bert = BertModel(config)
+        self.start_end_pos_classifier = nn.Linear(config.hidden_size, 2)  # TODO 双向LSTM输出，要维度乘2
+        # self.lstm = nn.LSTM(config.hidden_size, config.hidden_size, batch_first=True, dropout=config.hidden_dropout_prob, bidirectional=True)
+        self.answerable_classifier = nn.Linear(config.hidden_size, 1)
+        self.init_weights()
+
+    def init_weights(self):
+        torch.nn.init.xavier_uniform(self.start_end_pos_classifier.weight)
+        self.start_end_pos_classifier.bias.data.fill_(0)
+
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        head_mask=None,
+        inputs_embeds=None,
+        start_labels=None,
+        end_labels=None,
+    ):
+        r"""
+        start_positions (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`):
+            Labels for position (index) of the start of the labelled span for computing the token classification loss.
+            Positions are clamped to the length of the sequence (:obj:`sequence_length`).
+            Position outside of the sequence are not taken into account for computing the loss.
+        end_positions (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`):
+            Labels for position (index) of the end of the labelled span for computing the token classification loss.
+            Positions are clamped to the length of the sequence (:obj:`sequence_length`).
+            Position outside of the sequence are not taken into account for computing the loss.
+        """
+
+        outputs = self.bert(
+            input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+        )
+        # TODO: mask strategy, loss func, net structure
+        sequence_output = outputs[0]  # (batch_size, sequence_length, hidden_size)
+        pooled_output = outputs[1]  # (batch_size, hidden_size)
+
+        sequence_output = self.dropout(sequence_output)
+        # sequence_output, _ = self.lstm(sequence_output)
+        start_end_pos_logits = self.start_end_pos_classifier(sequence_output)  # (batch_size, sequence_length, 2)
+        # start_end_pos_logits = start_end_pos_logits * token_type_ids.unsqueeze(-1).expand(-1,-1,2)
+        start_end_pos_logits = start_end_pos_logits * attention_mask.unsqueeze(-1).expand(-1, -1, 2)
+        outputs = (start_end_pos_logits,) + outputs[2:]  # add hidden states and attention if they are here
+
+        start_positions = start_labels.unsqueeze(2)
+        end_positions = end_labels.unsqueeze(2)
+        start_end_pos_labels = torch.cat((start_positions, end_positions), 2)
+
+        loss_fct = BCEWithLogitsLoss()
+        role_loss = loss_fct(start_end_pos_logits, start_end_pos_labels.float())
+
+        output_vector = self.dropout(pooled_output)
+        answerable_output = self.answerable_classifier(output_vector)  # (batch_size, 1)
+        answerable_label = (torch.any(start_labels, 1) + torch.any(end_labels, 1)).float().unsqueeze(-1)
+        answerable_loss = loss_fct(answerable_output, answerable_label)
+
+        print('role_loss:', role_loss.data.item())
+        print('answerable_loss:', answerable_loss.data.item())
+        total_loss = (role_loss + 0.1 * answerable_loss) / 2
+
+        output = (total_loss,) + outputs
+        return output  # total_loss, start_end_pos_logits, _, _
+
