@@ -2,7 +2,7 @@ NLPCC2021信息抽取比赛，句子级事件抽取<br>
 https://aistudio.baidu.com/aistudio/competition/detail/65<br>  
 
 test1测试集precison/recall/f1结果：90.02/79.01/84.16
-test1榜排名：25
+test1榜排名：25/2148
 
 环境：<br>  
 Win10, CUDA11.1, pytorch1.8.1, transformers3.4.0<br>  
