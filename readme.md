@@ -34,4 +34,7 @@ Win10, CUDA11.1, pytorch1.8.1, transformers3.4.0<br>
         |---run_classification.py      基线模型主程序
         |---run_classification_fold.py 使用交叉验证的主程序
         |---run_classification_fold.sh 交叉验证启动脚本
-        |---... 
+    |---data_analysis.py    数据分析
+    |---postprocess.py      后处理程序，融合论元预测结果，按规定格式生成用于提交的文件
+    |---utils.py    一些工具函数
+    |---readme.md   本文件
